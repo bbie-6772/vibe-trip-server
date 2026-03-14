@@ -64,3 +64,66 @@ src/main/kotlin/com/vibetrip/vibetripserver/
 │   └── response/        # API 응답 포맷
 └── VibeTripServerApplication.kt
 ```
+
+## API 응답 포맷
+
+모든 API 응답은 `ApiResponse<T>` 형식을 따릅니다.
+
+### 응답 구조
+
+```json
+{
+  "resultType": "SUCCESS" | "ERROR",
+  "data": <T> | null,
+  "error": <ErrorMessage> | null
+}
+```
+
+### 성공 응답
+
+데이터가 있는 경우:
+```json
+{
+  "resultType": "SUCCESS",
+  "data": {
+    "id": 1,
+    "name": "example"
+  },
+  "error": null
+}
+```
+
+데이터가 없는 경우:
+```json
+{
+  "resultType": "SUCCESS",
+  "data": null,
+  "error": null
+}
+```
+
+### 에러 응답
+
+```json
+{
+  "resultType": "ERROR",
+  "data": null,
+  "error": {
+    "errorCode": "E400",
+    "message": "잘못된 접근 경로입니다.",
+    "data": null
+  }
+}
+```
+
+### 에러 코드
+
+| 코드 | HTTP Status | 설명 |
+|------|-------------|------|
+| `E400` | 400 Bad Request | 잘못된 접근 경로입니다. |
+| `E401` | 401 Unauthorized | 리소스에 접근하기 위한 인증이 필요합니다. |
+| `E403` | 403 Forbidden | 인증에 실패했습니다. / 해당 리소스에 대한 권한이 없습니다. |
+| `E404` | 404 Not Found | 해당 데이터를 찾을 수 없습니다. |
+| `E409` | 409 Conflict | 요청이 충돌했습니다. 다시 시도해주세요. |
+| `E429` | 429 Too Many Requests | 너무 많은 요청을 보냈습니다. |
+| `E500` | 500 Internal Server Error | 알 수 없는 오류가 발생했습니다. |
