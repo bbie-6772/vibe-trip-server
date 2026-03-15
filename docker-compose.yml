@@ -1,0 +1,126 @@
+services:
+
+  # ═══════════════════════════════════════════════════
+  # 1. MySQL DB
+  # ═══════════════════════════════════════════════════
+  db:
+    image: mysql:8.0
+    container_name: vibetrip-db
+    restart: unless-stopped
+
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}   # root 비밀번호
+      MYSQL_DATABASE: ${MYSQL_DATABASE}             # 생성할 DB명
+      MYSQL_USER: ${MYSQL_USER}                     # 앱 전용 유저
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}             # 앱 유저 비밀번호
+      TZ: Asia/Seoul
+
+    ports:
+      - "3306:3306"   # 개발용: DBeaver 등 외부 툴로 직접 접근 가능
+      # 운영 배포 시엔 이 줄 제거 (expose만 사용)
+
+    volumes:
+      # ✅ Bind Mount: 컨테이너 삭제해도 DB 데이터 보존
+      - ./data/mysql:/var/lib/mysql
+
+      # ✅ 초기 SQL: 컨테이너 최초 생성 시 자동 실행
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+
+    networks:
+      - app-network
+
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost",
+              "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s       # 10초마다 체크
+      timeout: 5s         # 5초 내 응답 없으면 실패
+      retries: 5          # 5번 연속 실패 시 unhealthy
+      start_period: 30s   # 최초 30초는 실패해도 무시 (DB 기동 시간)
+
+
+  # ═══════════════════════════════════════════════════
+  # 2. Spring Boot (Kotlin / JDK 21)
+  # ═══════════════════════════════════════════════════
+  app:
+    build:
+      context: .            # Dockerfile 위치 (프로젝트 루트)
+      dockerfile: Dockerfile
+
+    container_name: vibetrip-app
+    restart: unless-stopped
+
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      # DB 연결 (컨테이너 이름 'db'로 접근)
+      DB_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE}?useSSL=false&serverTimezone=Asia/Seoul&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Seoul
+
+    expose:
+      - "8080"    # 외부에서 직접 접근 불가, nginx만 접근 가능
+      # ports가 아닌 expose를 쓰는 게 보안상 올바른 방법
+
+    volumes:
+      # ✅ Bind Mount: 앱 로그를 호스트에서 바로 확인
+      - ./data/logs:/app/logs
+
+    depends_on:
+      db:
+        condition: service_healthy   # DB healthcheck 통과 후에만 앱 시작
+
+    networks:
+      - app-network
+
+    deploy:
+      resources:
+        limits:
+          memory: 512M   # JVM 메모리 상한 (서버 RAM에 맞게 조정)
+
+    healthcheck:
+      test: [ "CMD-SHELL",
+              "wget -qO- http://localhost:8080/actuator/health || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s   # Spring Boot 첫 기동 시간 여유있게
+
+
+  # ═══════════════════════════════════════════════════
+  # 3. Nginx 리버스 프록시
+  # ═══════════════════════════════════════════════════
+  nginx:
+    image: nginx:alpine
+    container_name: vibetrip-nginx
+    restart: unless-stopped
+
+    ports:
+      - "80:80"     # HTTP (외부 → nginx)
+      # - "443:443" # HTTPS (SSL 인증서 준비되면 주석 해제)
+
+    volumes:
+      # ✅ Bind Mount: 설정 파일 — 변경 후 reload만 하면 즉시 반영
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+      # ✅ Bind Mount: nginx 로그 호스트에서 확인
+      - ./data/nginx/logs:/var/log/nginx
+
+      # SSL 인증서 (Let's Encrypt 준비되면 주석 해제)
+      # - ./nginx/ssl:/etc/nginx/ssl:ro
+
+    depends_on:
+      app:
+        condition: service_healthy   # 앱 완전히 뜬 후 nginx 시작
+
+    networks:
+      - app-network
+
+
+# ═══════════════════════════════════════════════════
+# 네트워크: 컨테이너끼리 이름으로 통신
+# nginx → app:8080
+# app   → db:3306
+# ═══════════════════════════════════════════════════
+networks:
+  app-network:
+    driver: bridge
