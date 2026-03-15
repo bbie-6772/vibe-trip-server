@@ -23,9 +23,6 @@ services:
       # ✅ Bind Mount: 컨테이너 삭제해도 DB 데이터 보존
       - ./data/mysql:/var/lib/mysql
 
-      # ✅ 초기 SQL: 컨테이너 최초 생성 시 자동 실행
-      - ./mysql/init:/docker-entrypoint-initdb.d:ro
-
     networks:
       - app-network
 
